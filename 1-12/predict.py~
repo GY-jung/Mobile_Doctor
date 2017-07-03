@@ -1,0 +1,37 @@
+import tensorflow as tf
+from preprocessing import *
+
+
+sess = tf.Session()
+saver = tf.train.import_meta_graph("model.meta")
+saver.restore(sess,tf.train.latest_checkpoint('./'))
+data = tonumpy(csvreader("processed.csv"))
+data = np.array(data, dtype = "float")
+
+test_ = data[10]
+test = np.zeros((1, len(test_)))
+test[0,:] = test_
+print test.shape
+
+time_mask = np.ones(len(test_), dtype = "bool")
+time_mask[3] = False
+test = np.transpose(test)
+
+X_test = np.array(test[time_mask], dtype = "float32")
+temp_test = np.array(test[3], dtype = "float32")
+
+X_test = np.transpose(X_test)
+temp_test = np.transpose(temp_test)
+
+
+graph = tf.get_default_graph()
+temps_placeholder = graph.get_tensor_by_name("temps:0")
+inputs_placeholder = graph.get_tensor_by_name("inputs:0")
+feed_dict = { inputs_placeholder : X_test, temps_placeholder : temp_test }
+
+op_to_restore = graph.get_tensor_by_name("op_to_restore:0")
+
+print "estimated temp"
+print sess.run(op_to_restore, feed_dict = feed_dict)
+print "real temp"
+print test[3]

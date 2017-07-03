@@ -1,0 +1,180 @@
+import numpy as np
+import csv
+import time
+import tensorflow as tf
+from preprocessing import *
+eps = 1e-1
+lr = 0.01
+decay = 0.99
+scalable = [0,1,16,18]
+hidden1 = 100
+hidden2 = 50
+
+
+data = tonumpy(csvreader("final_20000.csv"))
+data = np.array(data, dtype = "float")
+
+def printmax(data):
+  print "max"
+  print np.amax(data, axis = 0)
+
+
+def printmin(data):
+  print "min"
+  print np.amin(data, axis = 0)
+
+
+def normalize(row):
+  avg = np.mean(row)
+  row -= avg
+  var = np.var(row)
+  row /= var
+  return row
+
+def inv(data, scalable):
+  inv = np.zeros((len(data), len(scalable)))
+  for cnt in np.arange(len(scalable)):
+    inv[:, cnt] = 1 / data[:, scalable[cnt]]
+    inv[:, cnt] = normalize(inv[:,cnt])
+    data[:, scalable[cnt]] = normalize(data[:, scalable[cnt]])
+  datainv = np.concatenate((data, inv), axis = 1)
+  return datainv
+
+
+
+def timezerofilter(data):
+ 
+  tpass = data[:,2]
+  tpass_mask = np.zeros_like(tpass, dtype = "bool")
+  for i in np.arange(len(tpass)):
+    if ( float(tpass[i]) > 600 ) :
+      tpass_mask[i] = True
+  data = (data[tpass_mask])
+  return data
+
+def timescale(data)  :
+  data[:, 2] = data[:, 2] / 3600
+  return data
+
+
+def tempdownfilter(data):
+  temp = data[:, 0] 
+  temp_mask = np.zeros_like(temp, dtype = "bool")
+  for i in np.arange(len(temp)):
+    if ( float(temp[i]) >= 35.0 ) :
+      temp_mask[i] = True
+  data = (data[temp_mask])
+  return data
+
+data = tempdownfilter(data)
+data = timezerofilter(data)
+data = timescale(data)
+data = inv(data,scalable)
+
+with open("processed.csv", 'wb') as writer:
+  np.savetxt("processed.csv", data, fmt = '%s', delimiter = ' ')
+
+
+print data.shape
+np.random.shuffle(data)
+
+printmax(data)
+
+printmin(data)
+data = np.transpose(data)
+train_set = data[:, 0:int(data.shape[1] * 0.6)]
+
+dev_set = data[:, int(data.shape[1]* 0.6) : int(data.shape[1]* 0.8)]
+
+test_set = data[:, int(data.shape[1]* 0.8):]
+
+time_mask = np.ones(data.shape[0], dtype = "bool")
+time_mask[3] = False
+
+X_train = np.array(train_set[time_mask], dtype = "float")
+temp_train = np.array(train_set[3], dtype = "float")
+
+
+
+X_dev = np.array(dev_set[time_mask], dtype = "float32")
+temp_dev = np.array(dev_set[3], dtype = "float32")
+
+X_test = np.array(test_set[time_mask], dtype = "float32")
+temp_test = np.array(test_set[3], dtype = "float32")
+
+X_train = np.transpose(X_train)
+X_dev = np.transpose(X_dev)
+X_test = np.transpose(X_test)
+
+print X_train.shape
+
+inputs_placeholder = tf.placeholder(tf.float32, (None, X_train.shape[1]), name = "inputs")
+temps_placeholder = tf.placeholder(tf.float32, (None,), name = "temps")
+
+mean = np.mean(temp_train) 
+
+W1 = tf.Variable(tf.random_uniform((X_train.shape[1],hidden1), minval = -np.sqrt(6.0/(X_train.shape[1] + hidden1) ), maxval = np.sqrt(6.0/(X_train.shape[1] + hidden1))), dtype = tf.float32)
+b1 = tf.Variable(tf.zeros((1,hidden1)) , dtype = tf.float32)
+W2 = tf.Variable(tf.random_uniform((hidden1,hidden2), minval = -np.sqrt(6.0/(hidden1 + hidden2)), maxval = np.sqrt(6.0/(hidden1 + hidden2))), dtype = tf.float32)
+b2 = tf.Variable(tf.zeros((1,hidden2)), dtype = tf.float32)
+W3 = tf.Variable(tf.random_uniform((hidden2,1), minval = -np.sqrt(6.0/hidden2), maxval = np.sqrt(6.0/hidden2)), dtype = tf.float32)
+b3 = tf.Variable(tf.zeros((1,1)), dtype = tf.float32)
+z1 = tf.matmul(inputs_placeholder, W1)  + b1
+h1 = tf.nn.tanh(z1)
+z2 = tf.matmul(h1, W2) + b2
+h2 = tf.nn.tanh(z2)
+z3 = tf.add(tf.matmul(h2, W3) , b3, name = "op_to_restore")
+y1 = tf.matmul(X_dev, W1) + b1
+g1 = tf.nn.tanh(y1)
+y2 = tf.matmul(g1, W2) + b2
+g2 = tf.tanh(y2)
+y3 = tf.matmul(g2,W3) + b3
+
+loss = tf.reduce_mean((z3 - temps_placeholder)**2)
+dev_loss = tf.reduce_mean((y3 - temp_dev)**2)
+
+saver = tf.train.Saver()
+
+optimizer = tf.train.AdamOptimizer(lr)
+train_op = optimizer.minimize(loss)
+
+init = tf.global_variables_initializer()
+
+sess = tf.Session()
+sess.run(init)
+
+
+best_dev = 10
+for step in range(201):
+    sess.run(train_op, feed_dict = {inputs_placeholder : X_train, temps_placeholder : temp_train})
+
+    if step%20 == 0:
+      print(step, sess.run((loss, dev_loss),  feed_dict = {inputs_placeholder : X_train, temps_placeholder : temp_train}))
+      print(sess.run((z3[11],z3[13], z3[15]), feed_dict = {inputs_placeholder : X_train, temps_placeholder : temp_train}))
+      print temp_train[11], temp_train[13], temp_train[15]
+      if best_dev < sess.run(dev_loss, feed_dict = {inputs_placeholder : X_train, temps_placeholder : temp_train}) : 
+        lr *= decay
+    
+        print "decay"
+        print lr
+      else :
+        best_dev = sess.run(dev_loss, feed_dict = {inputs_placeholder : X_train, temps_placeholder : temp_train})
+
+save_path = saver.save(sess, "model")
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+

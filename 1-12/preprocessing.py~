@@ -1,0 +1,191 @@
+import csv
+import numpy as np
+import time
+
+def csvreader(filename, delimiter = ' '):
+  fever = []
+  with open(filename, 'rb') as csvfile:
+    feverreader = csv.reader(csvfile, delimiter = delimiter)
+    for row in feverreader:
+      fever.append(row)
+  return fever
+
+def is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+def elimrow1(fever) :  
+  fever = fever[1:]
+  return fever
+
+def tonumpy(fever) : 
+  fever = np.asarray(fever)
+  return fever
+
+def elim600(filename,delimiter=' ', verbose = True):
+  fever = tonumpy(elimrow1(csvreader(filename, delimiter)))
+  Aiddict = {}
+  ind2list = []
+  cnt = np.zeros((len(fever),1))
+  temp = np.zeros(len(fever))
+  print filename
+  for ind, row in enumerate(fever): 
+    if row[1] in Aiddict.keys():    
+      temp[ind] = Aiddict[row[1]]
+    elif (int(row[9]) < 601) :
+      Aiddict[row[1]] = (row[6])
+      temp[ind] = Aiddict[row[1]]
+      cnt[ind] = 1
+    if (verbose and not (ind % 10000)):
+      print "step %d finished" %ind 
+  fever = fever[(temp!=0)]
+  cnt = cnt[(temp!=0)]
+  temp = temp[(temp!=0)]
+  temp2 = np.array(fever[:,6], dtype = "float32")
+  temp3 = -temp2 + temp
+  tempdiff = np.zeros((len(fever),1))
+  tempdiff[:,0] = temp3
+  fever2 = np.concatenate((fever, cnt), axis = 1)
+  fever2 = np.concatenate((fever2, tempdiff), axis = 1)
+  return fever2
+
+
+def preprocess(filename):
+
+  with open('_' + filename, 'wb') as writer:
+    np.savetxt('_' + filename, tonumpy(elimrow1(csvreader(filename, delimiter = ' '))), fmt = '%s', delimiter = ' ')
+
+
+def allread(): 
+  csvdict = {}
+  for i in np.arange(12):
+    j = i + 1
+    csvdict[j] = tonumpy(csvreader( "_%d" %j + ".csv"))
+  return csvdict  
+
+
+def dummygenerator(csvdict):
+  for i in range(12):
+    j = i+1
+    dummyarray = np.zeros((len(csvdict[j]),12))
+    dummyarray[:, i] = 1  
+    csvdict[j] = np.concatenate((csvdict[j], dummyarray), axis = 1)
+    with open('__' + "%d" %j + ".csv", 'wb') as writer:
+      np.savetxt('__' + "%d" %j + ".csv", csvdict[j], fmt = '%s', delimiter = ' ')
+  
+  return csvdict
+
+
+
+
+
+
+
+
+
+def merge():
+
+  
+  fevermerge = csvdict[1]
+  for i in range(11):
+    
+    j = i+2
+    print csvdict[j].shape
+    fevermerge = np.concatenate((fevermerge, csvdict[j]), axis = 0)
+  with open("merge.csv", 'wb') as writer:
+    np.savetxt("merge.csv", fevermerge, fmt = '%s', delimiter = ' ')
+  return merge
+
+
+
+def takeminus(filename):
+  print filename
+  fever = tonumpy(csvreader(filename))
+  fever_ = np.array(fever[:,-1], dtype = "float")
+  fever[:,-1] = fever_ * (-1)
+  with open(filename, 'wb') as writer:
+    np.savetxt(filename, fever, fmt = '%s', delimiter = ' ') 
+
+
+def regvalue(fever):
+  tic = time.time()
+  total__ = fever[:,[3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,21,22,23]]
+  toc = time.time()
+  print  "%f s" %(toc-tic)
+  return total__
+
+
+def elimnan(fever):
+ 
+  for j in np.arange(fever.shape[1]):
+    fever_ = fever[:,j]
+    fever_mask = np.zeros_like(fever_, dtype = "bool")
+  for i in np.arange(len(fever_)):
+    if is_number(fever_[i]):
+      fever_mask[i] = True
+  fever = fever[fever_mask]
+  return fever
+
+
+
+def elimoutlier(fever):
+  weight = fever[:,16]
+  weight_mask = np.zeros_like(weight, dtype = "bool")
+  for i in np.arange(len(weight)):
+    if is_number(weight[i]) and ( float(weight[i]) >=2 ) and (float(weight[i])<=40):
+      weight_mask[i] = True
+  fever = fever[weight_mask]
+
+
+  volume = fever[:,1]
+  volume_mask = np.zeros_like(volume, dtype = "bool")
+  for i in np.arange(len(volume)):
+    if is_number(volume[i]) and ( float(volume[i]) >=0.1 ) and (float(volume[i])<=30):
+      volume_mask[i] = True
+  fever = (fever[volume_mask])
+  return fever
+
+def timetohour(fever):
+  fever[2, :] = int(fever[2,:] / 3600)
+  return fever
+
+def dummyhour(fever):
+  dummyarray = np.zeros((len(fever[:,2]),6))
+  for i in range(5):
+    j = i+1  
+    for t in range(len(fever[:,2])):
+      if (fever[t,2] == j):
+        dummyarray[t,j] = 1  
+      if (fever[t,2] >= 6):
+        dummyarray[t,5] = 1
+  fever = np.concatenate((fever, dummyarray), axis = 1)
+  return fever
+
+def nanfilter(data,p) : 
+  nan= data[:, p] 
+  nan_mask = np.zeros_like(nan, dtype = "bool")
+  for i in np.arange(len(nan)):
+    print i
+    if ( is_number(nan[i]) ) :
+      nan_mask[i] = True
+  data = (data[nan_mask])
+  return data
+
+
+
+fever = tonumpy(csvreader("total.csv"))
+fever = fever[:50000]
+fever = regvalue(fever)
+
+fever_ = nanfilter(fever, 1)
+print fever_.shape
+fever__ = np.array(fever_, dtype = "float")
+
+fever___  = elimoutlier(fever__)
+fever____ = dummyhour(fever___)
+with open("final_50000.csv", 'wb') as writer:
+  np.savetxt("final_50000.csv", fever____, fmt = '%s', delimiter = ' ')
+

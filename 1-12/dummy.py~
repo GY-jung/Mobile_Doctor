@@ -1,0 +1,14 @@
+import csv
+import numpy as np
+from feverdrop2 import *
+
+def dummygenerator(csvdict):
+  for i in range(12):
+    j = i+1
+    dummyarray = np.zeros((len(csvdict[j]),12))
+    dummyarray[:, i] = 1  
+    csvdict[j] = np.concatenate((csvdict[j], dummyarray), axis = 1)
+
+  return csvdict
+
+print dummygenerator(allread())
